@@ -4,7 +4,7 @@ const fetch = require('node-fetch');
 
 const app = express();
 const PORT = process.env.PORT || 3000;
-const ANTHROPIC_API_KEY = process.env.ANTHROPIC_API_KEY;
+const OPENAI_API_KEY = process.env.OPENAI_API_KEY;
 
 app.use(cors());
 app.use(express.json({ limit: '50mb' }));
@@ -17,28 +17,55 @@ app.get('/', (req, res) => {
 // Proxy endpoint per AI
 app.post('/ai', async (req, res) => {
   try {
-    if (!ANTHROPIC_API_KEY) {
-      return res.status(500).json({ error: 'API key non configurata' });
-    }
+    const { prompt, pdfBase64 } = req.body;
 
-    const { messages, max_tokens } = req.body;
+    const messages = [
+      {
+        role: 'user',
+        content: pdfBase64
+          ? [
+              {
+                type: 'text',
+                text: prompt
+              },
+              {
+                type: 'image_url',
+                image_url: {
+                  url: `data:application/pdf;base64,${pdfBase64}`
+                }
+              }
+            ]
+          : prompt
+      }
+    ];
 
-    const response = await fetch('https://api.anthropic.com/v1/messages', {
+    const response = await fetch('https://api.openai.com/v1/chat/completions', {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
-        'x-api-key': ANTHROPIC_API_KEY,
-        'anthropic-version': '2023-06-01'
+        'Authorization': `Bearer ${OPENAI_API_KEY}`
       },
       body: JSON.stringify({
-        model: 'claude-sonnet-4-20250514',
-        max_tokens: max_tokens || 1000,
-        messages: messages
+        model: 'gpt-4o',
+        max_tokens: 1500,
+        messages: [
+          {
+            role: 'system',
+            content: 'Sei un assistente per la gestione di un bar. Analizza le fatture e rispondi in italiano in formato JSON strutturato.'
+          },
+          ...messages
+        ]
       })
     });
 
     const data = await response.json();
-    res.json(data);
+
+    if (!response.ok) {
+      return res.status(response.status).json(data);
+    }
+
+    const text = data.choices?.[0]?.message?.content || '';
+    res.json({ content: [{ type: 'text', text }] });
 
   } catch (err) {
     console.error('Errore:', err);
@@ -47,5 +74,5 @@ app.post('/ai', async (req, res) => {
 });
 
 app.listen(PORT, () => {
-  console.log(`Server avviato su porta ${PORT}`);
+  console.log(`Server attivo su porta ${PORT}`);
 });
